@@ -559,7 +559,7 @@ object CloudflareR2Manager {
         // 1. Try public CDN URL first (fastest)
         if (pubBase.isNotBlank()) {
             try {
-                val pubUrl = "$pubBase/$cleanKey"
+                val pubUrl = "$pubBase/$cleanKey?t=${System.currentTimeMillis()}"
                 val req = Request.Builder().url(pubUrl).get().build()
                 val resp = httpClient.newCall(req).execute()
                 if (resp.isSuccessful) {

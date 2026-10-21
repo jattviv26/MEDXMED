@@ -255,11 +255,17 @@ fun AdminNotesUploadScreen(
 
                             if (uploadRes.isSuccess) {
                                 android.widget.Toast.makeText(context, "✓ Note uploaded to Cloudflare R2 bucket!", android.widget.Toast.LENGTH_SHORT).show()
+                                statusMessage = "✓ Note \"$cleanChapter\" uploaded to Cloudflare R2 bucket! Ready for next upload."
                             } else {
                                 val err = uploadRes.exceptionOrNull()?.localizedMessage ?: "Unknown error"
                                 android.widget.Toast.makeText(context, "Saved locally (Cloudflare: $err)", android.widget.Toast.LENGTH_LONG).show()
+                                statusMessage = "✓ Note \"$cleanChapter\" saved locally (Cloudflare: $err). Ready for next upload."
                             }
-                            onBackClick()
+                            // Stay on the same page! Reset chapter and PDF selection so user can upload more notes
+                            chapterName = ""
+                            selectedPdfUri = null
+                            selectedPdfName = ""
+                            uploadProgress = 0f
                         } catch (e: Exception) {
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             e.printStackTrace()
@@ -283,6 +289,16 @@ fun AdminNotesUploadScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Upload & Save Note", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
+            }
+
+            OutlinedButton(
+                onClick = onBackClick,
+                modifier = Modifier.fillMaxWidth().height(46.dp),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Done / Back to Admin Panel", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
         }
     }

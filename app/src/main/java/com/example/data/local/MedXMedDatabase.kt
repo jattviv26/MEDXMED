@@ -13,9 +13,12 @@ import androidx.room.RoomDatabase
         ContentFolderEntity::class,
         StudyContentEntity::class,
         PomodoroSessionEntity::class,
-        AdminNoteEntity::class
+        AdminNoteEntity::class,
+        McqEntity::class,
+        McqBookmarkEntity::class,
+        McqHistoryEntity::class
     ],
-    version = 14,
+    version = 17,
     exportSchema = false
 )
 abstract class MedXMedDatabase : RoomDatabase() {
@@ -26,6 +29,9 @@ abstract class MedXMedDatabase : RoomDatabase() {
     abstract fun studyContentDao(): StudyContentDao
     abstract fun pomodoroSessionDao(): PomodoroSessionDao
     abstract fun adminNoteDao(): AdminNoteDao
+    abstract fun mcqDao(): McqDao
+    abstract fun mcqBookmarkDao(): McqBookmarkDao
+    abstract fun mcqHistoryDao(): McqHistoryDao
 
 
     companion object {

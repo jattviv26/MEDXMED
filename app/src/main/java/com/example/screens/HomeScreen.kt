@@ -54,10 +54,14 @@ fun HomeScreen(
     onProfileClick: () -> Unit,
     onPdfClick: (title: String, mediaUrl: String) -> Unit = { _, _ -> },
     onVideoClick: (title: String, mediaUrl: String, chapterName: String, subjectName: String) -> Unit = { _, _, _, _ -> },
-    onNotesClick: () -> Unit = {}
+    onNotesClick: () -> Unit = {},
+    onMcqClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        MedRepository.fetchCatalog()
+    }
     val userAvatar by MedRepository.userAvatar.collectAsState()
     val userPhotoUri by MedRepository.userPhotoUri.collectAsState()
     val userName by MedRepository.userName.collectAsState()
@@ -166,7 +170,7 @@ fun HomeScreen(
                             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                         ) {
                             Image(
-                                painter = painterResource(id = R.drawable.medxmed_theme_logo),
+                                painter = painterResource(id = R.drawable.logo_medxmed),
                                 contentDescription = "MEDXMED Logo",
                                 modifier = Modifier
                                     .padding(3.dp)
@@ -946,6 +950,61 @@ fun HomeScreen(
                                 imageVector = Icons.Default.ChevronRight,
                                 contentDescription = "Open Notes",
                                 tint = Color(0xFF2563EB)
+                            )
+                        }
+                    }
+                }
+
+                // MCQ PRACTICE Section Card (Directly below NOTES)
+                item {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onMcqClick() },
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF16A34A).copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(18.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFF16A34A),
+                                    modifier = Modifier.size(46.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text("📝", fontSize = 24.sp)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column {
+                                    Text(
+                                        text = "MCQ PRACTICE",
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 17.sp,
+                                        color = Color(0xFF14532D),
+                                        letterSpacing = 1.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Folder Wise Chapter MCQs & Tests",
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF64748B)
+                                    )
+                                }
+                            }
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "Open MCQ Practice",
+                                tint = Color(0xFF16A34A)
                             )
                         }
                     }

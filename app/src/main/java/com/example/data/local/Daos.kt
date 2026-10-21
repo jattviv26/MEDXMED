@@ -170,6 +170,9 @@ interface AdminNoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAdminNote(note: AdminNoteEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAdminNotes(notes: List<AdminNoteEntity>)
+
     @Query("UPDATE admin_notes SET folderName = :folder, subfolderName = :subfolder, subSubfolderName = :subSubfolder, chapterName = :chapter, pdfTitle = :title WHERE id = :id")
     suspend fun updateAdminNote(id: String, folder: String, subfolder: String, subSubfolder: String, chapter: String, title: String)
 
@@ -200,5 +203,78 @@ interface AdminNoteDao {
     @Query("DELETE FROM admin_notes")
     suspend fun clearAllAdminNotes()
 }
+
+@Dao
+interface McqDao {
+    @Query("SELECT * FROM admin_mcqs ORDER BY createdAt DESC")
+    fun getAllMcqs(): Flow<List<McqEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMcq(mcq: McqEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMcqs(mcqs: List<McqEntity>)
+
+    @Query("DELETE FROM admin_mcqs WHERE id = :id")
+    suspend fun deleteMcqById(id: String)
+
+    @Query("DELETE FROM admin_mcqs WHERE folderName = :folderName AND subfolderName = :subName AND chapterName = :chapterName")
+    suspend fun deleteChapter(folderName: String, subName: String, chapterName: String)
+
+    @Query("UPDATE admin_mcqs SET folderName = :newName WHERE folderName = :oldName")
+    suspend fun renameFolder(oldName: String, newName: String)
+
+    @Query("DELETE FROM admin_mcqs WHERE folderName = :folderName")
+    suspend fun deleteFolder(folderName: String)
+
+    @Query("UPDATE admin_mcqs SET subfolderName = :newSub WHERE folderName = :folderName AND subfolderName = :oldSub")
+    suspend fun renameSubfolder(folderName: String, oldSub: String, newSub: String)
+
+    @Query("DELETE FROM admin_mcqs WHERE folderName = :folderName AND subfolderName = :subName")
+    suspend fun deleteSubfolder(folderName: String, subName: String)
+
+    @Query("UPDATE admin_mcqs SET subSubfolderName = :newSubSub WHERE folderName = :folderName AND subfolderName = :subName AND subSubfolderName = :oldSubSub")
+    suspend fun renameSubSubfolder(folderName: String, subName: String, oldSubSub: String, newSubSub: String)
+
+    @Query("DELETE FROM admin_mcqs WHERE folderName = :folderName AND subfolderName = :subName AND subSubfolderName = :subSubName")
+    suspend fun deleteSubSubfolder(folderName: String, subName: String, subSubName: String)
+
+    @Query("UPDATE admin_mcqs SET chapterName = :newChapter WHERE id = :id")
+    suspend fun renameChapterById(id: String, newChapter: String)
+
+    @Query("DELETE FROM admin_mcqs")
+    suspend fun clearAllMcqs()
+}
+
+@Dao
+interface McqBookmarkDao {
+    @Query("SELECT * FROM mcq_bookmarks ORDER BY timestamp DESC")
+    fun getAllBookmarks(): Flow<List<McqBookmarkEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBookmark(bookmark: McqBookmarkEntity)
+
+    @Query("DELETE FROM mcq_bookmarks WHERE id = :id")
+    suspend fun deleteBookmark(id: String)
+
+    @Query("DELETE FROM mcq_bookmarks WHERE questionId = :questionId")
+    suspend fun deleteBookmarkByQuestionId(questionId: String)
+}
+
+@Dao
+interface McqHistoryDao {
+    @Query("SELECT * FROM mcq_history ORDER BY timestamp DESC")
+    fun getAllHistory(): Flow<List<McqHistoryEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHistory(history: McqHistoryEntity)
+
+    @Query("DELETE FROM mcq_history WHERE id = :id")
+    suspend fun deleteHistory(id: String)
+
+    @Query("DELETE FROM mcq_history")
+    suspend fun clearAllHistory()
+}
+
 
 

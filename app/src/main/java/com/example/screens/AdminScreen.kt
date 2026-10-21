@@ -413,11 +413,11 @@ fun AdminScreen(
     onBackClick: () -> Unit,
     navigateTo: (Screen) -> Unit
 ) {
-    var isUnlocked by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val isUnlocked by MedRepository.isAdminUnlocked.collectAsState()
 
     if (!isUnlocked) {
         AdminLockView(
-            onUnlock = { isUnlocked = true },
+            onUnlock = { MedRepository.unlockAdmin() },
             onBackClick = onBackClick
         )
         return
@@ -426,6 +426,25 @@ fun AdminScreen(
     var mainTabState by remember { mutableIntStateOf(0) } // 0 = Upload Center, 1 = Manage Library
     var subUploadTab by remember { mutableIntStateOf(0) }
     var isViewingUploadForm by remember { mutableStateOf(false) }
+
+    fun handleAdminBack() {
+        when {
+            isViewingUploadForm -> {
+                isViewingUploadForm = false
+            }
+            mainTabState == 1 -> {
+                mainTabState = 0
+            }
+            else -> {
+                onBackClick()
+            }
+        }
+    }
+
+    // Intercept hardware and gesture back press so admin doesn't pop all at once
+    BackHandler(enabled = isUnlocked) {
+        handleAdminBack()
+    }
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -463,15 +482,34 @@ fun AdminScreen(
                 TopAppBar(
                     modifier = Modifier.height(52.dp),
                     title = {
-                        Text(
-                            text = "Admin Panel",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1E3A8A)
-                        )
+                        Column {
+                            Text(
+                                text = "Admin Panel",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1E3A8A)
+                            )
+                            if (isViewingUploadForm) {
+                                Text(
+                                    text = when (subUploadTab) {
+                                        0 -> "MBBS Subjects Content"
+                                        1 -> "Shorts Upload"
+                                        else -> "App Info & Notice"
+                                    },
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF2563EB)
+                                )
+                            } else if (mainTabState == 1) {
+                                Text(
+                                    text = "Manage Library",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+                        }
                     },
                     navigationIcon = {
-                        IconButton(onClick = onBackClick) {
+                        IconButton(onClick = { handleAdminBack() }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Back",
@@ -506,7 +544,7 @@ fun AdminScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Lock Admin") },
-                                    onClick = { showAdminMenu = false; isUnlocked = false },
+                                    onClick = { showAdminMenu = false; MedRepository.lockAdmin() },
                                     leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
@@ -517,7 +555,7 @@ fun AdminScreen(
                             }
                         }
                     },
-                                        windowInsets = WindowInsets(0.dp),
+                    windowInsets = WindowInsets(0.dp),
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFEFF6FF))
                 )
                 HorizontalDivider(thickness = 1.dp, color = Color(0xFFBFDBFE))
@@ -580,9 +618,10 @@ fun AdminScreen(
                 ) {
                     val uploadOptions = listOf(
                         Triple(0, "📝 NOTES UPLOAD SECTION", { navigateTo(Screen.AdminNotesUpload) }),
-                        Triple(1, "📚 MBBS Subjects Content", { subUploadTab = 0; isViewingUploadForm = true }),
-                        Triple(2, "🎬 Shorts Upload", { subUploadTab = 1; isViewingUploadForm = true }),
-                        Triple(3, "⚙️ App Info & Notice Settings", { subUploadTab = 2; isViewingUploadForm = true })
+                        Triple(1, "🎯 MCQ UPLOAD SECTION (Bulk JSON & Manual)", { navigateTo(Screen.AdminMcqUpload) }),
+                        Triple(2, "📚 MBBS Subjects Content", { subUploadTab = 0; isViewingUploadForm = true }),
+                        Triple(3, "🎬 Shorts Upload", { subUploadTab = 1; isViewingUploadForm = true }),
+                        Triple(4, "⚙️ App Info & Notice Settings", { subUploadTab = 2; isViewingUploadForm = true })
                     )
                     uploadOptions.forEach { (_, title, onClickAction) ->
                         Surface(
@@ -2181,8 +2220,9 @@ fun ManageLibraryCategoryList(
     ) {
         val manageOptions = listOf(
             Triple(0, "📁 NOTES MANAGE SECTION", { navigateTo(Screen.AdminNotesManage) }),
-            Triple(1, "📚 MBBS Subjects Content", { onCategorySelected(0) }),
-            Triple(2, "🎬 Shorts", { onCategorySelected(1) })
+            Triple(1, "🎯 MCQ MANAGE SECTION", { navigateTo(Screen.AdminMcqManage) }),
+            Triple(2, "📚 MBBS Subjects Content", { onCategorySelected(0) }),
+            Triple(3, "🎬 Shorts", { onCategorySelected(1) })
         )
         manageOptions.forEach { (_, title, onClickAction) ->
             Surface(

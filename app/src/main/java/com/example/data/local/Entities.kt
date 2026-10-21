@@ -299,3 +299,137 @@ data class AdminNoteEntity(
     }
 }
 
+@Entity(tableName = "admin_mcqs")
+data class McqEntity(
+    @PrimaryKey val id: String,
+    val folderName: String,
+    val subfolderName: String,
+    val subSubfolderName: String = "",
+    val chapterName: String,
+    val questionsJson: String,
+    val questionCount: Int = 0,
+    val r2Key: String = "",
+    val r2Url: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+) {
+    fun toDomain() = McqItem(
+        id = id,
+        folderName = folderName,
+        subfolderName = subfolderName,
+        subSubfolderName = subSubfolderName,
+        chapterName = chapterName,
+        questions = try {
+            kotlinx.serialization.json.Json.decodeFromString<List<McqQuestion>>(questionsJson)
+        } catch (_: Exception) { emptyList() },
+        questionCount = if (questionCount > 0) questionCount else try {
+            kotlinx.serialization.json.Json.decodeFromString<List<McqQuestion>>(questionsJson).size
+        } catch (_: Exception) { 0 },
+        r2Key = r2Key,
+        r2Url = r2Url,
+        createdAt = createdAt
+    )
+
+    companion object {
+        fun fromDomain(d: McqItem) = McqEntity(
+            id = d.id,
+            folderName = d.folderName,
+            subfolderName = d.subfolderName,
+            subSubfolderName = d.subSubfolderName,
+            chapterName = d.chapterName,
+            questionsJson = try {
+                kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(McqQuestion.serializer()), d.questions)
+            } catch (_: Exception) { "[]" },
+            questionCount = if (d.questions.isNotEmpty()) d.questions.size else d.questionCount,
+            r2Key = d.r2Key,
+            r2Url = d.r2Url,
+            createdAt = d.createdAt
+        )
+    }
+}
+
+@Entity(tableName = "mcq_bookmarks")
+data class McqBookmarkEntity(
+    @PrimaryKey
+    val id: String,
+    val questionId: String,
+    val chapterName: String,
+    val folderName: String,
+    val subfolderName: String,
+    val questionJson: String,
+    val timestamp: Long
+) {
+    fun toDomain(): McqBookmarkItem = McqBookmarkItem(
+        id = id,
+        chapterName = chapterName,
+        folderName = folderName,
+        subfolderName = subfolderName,
+        question = try {
+            kotlinx.serialization.json.Json.decodeFromString<McqQuestion>(questionJson)
+        } catch (_: Exception) {
+            McqQuestion(id = questionId, questionText = "", optionA = "", optionB = "", optionC = "", optionD = "", correctOption = "")
+        },
+        timestamp = timestamp
+    )
+
+    companion object {
+        fun fromDomain(d: McqBookmarkItem): McqBookmarkEntity = McqBookmarkEntity(
+            id = d.id,
+            questionId = d.question.id,
+            chapterName = d.chapterName,
+            folderName = d.folderName,
+            subfolderName = d.subfolderName,
+            questionJson = kotlinx.serialization.json.Json.encodeToString(McqQuestion.serializer(), d.question),
+            timestamp = d.timestamp
+        )
+    }
+}
+
+@Entity(tableName = "mcq_history")
+data class McqHistoryEntity(
+    @PrimaryKey
+    val id: String,
+    val chapterName: String,
+    val folderName: String,
+    val subfolderName: String,
+    val totalQuestions: Int,
+    val correctCount: Int,
+    val incorrectCount: Int,
+    val unattemptedCount: Int,
+    val score: Int,
+    val timestamp: Long,
+    val recordsJson: String
+) {
+    fun toDomain(): McqHistoryItem = McqHistoryItem(
+        id = id,
+        chapterName = chapterName,
+        folderName = folderName,
+        subfolderName = subfolderName,
+        totalQuestions = totalQuestions,
+        correctCount = correctCount,
+        incorrectCount = incorrectCount,
+        unattemptedCount = unattemptedCount,
+        score = score,
+        timestamp = timestamp,
+        records = try {
+            kotlinx.serialization.json.Json.decodeFromString<List<QuestionAttemptRecord>>(recordsJson)
+        } catch (_: Exception) { emptyList() }
+    )
+
+    companion object {
+        fun fromDomain(d: McqHistoryItem): McqHistoryEntity = McqHistoryEntity(
+            id = d.id,
+            chapterName = d.chapterName,
+            folderName = d.folderName,
+            subfolderName = d.subfolderName,
+            totalQuestions = d.totalQuestions,
+            correctCount = d.correctCount,
+            incorrectCount = d.incorrectCount,
+            unattemptedCount = d.unattemptedCount,
+            score = d.score,
+            timestamp = d.timestamp,
+            recordsJson = kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(QuestionAttemptRecord.serializer()), d.records)
+        )
+    }
+}
+
+

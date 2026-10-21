@@ -57,6 +57,11 @@ sealed interface Screen {
     object UserNotes : Screen
     object AdminNotesUpload : Screen
     object AdminNotesManage : Screen
+    object UserMcq : Screen
+    object AdminMcqUpload : Screen
+    object AdminMcqManage : Screen
+    object McqBookmarks : Screen
+    object McqHistory : Screen
     data class CustomSectionDetail(val section: CustomSection) : Screen
     data class PdfViewer(val title: String, val pdfUri: String) : Screen
     data class VideoPlayer(
@@ -73,7 +78,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // Block screenshots, screen recording, and external capture to prevent data leaks
-        com.example.util.SecurityUtils.applyScreenshotProtection(this)
+        // com.example.util.SecurityUtils.applyScreenshotProtection(this)
 
         MedRepository.initialize(applicationContext)
         PomodoroManager.initialize(applicationContext)
@@ -213,11 +218,7 @@ fun MedXMedApp() {
     val showBottomBar = currentScreen == Screen.Home
 
     val handleVideoClick: (String, String, String, String, String) -> Unit = { title, url, ch, sub, fId ->
-        if (isYouTubeUrl(url)) {
-            YouTubePlayerActivity.launch(context, url, title)
-        } else {
-            navigateTo(Screen.VideoPlayer(title, url, ch, sub, fId))
-        }
+        navigateTo(Screen.VideoPlayer(title, url, ch, sub, fId))
     }
 
     Scaffold(
@@ -372,7 +373,8 @@ fun MedXMedApp() {
                             onProfileClick = { navigateTo(Screen.Profile) },
                             onPdfClick = { title, uri -> navigateTo(Screen.PdfViewer(title, uri)) },
                             onVideoClick = { title, url, ch, sub -> handleVideoClick(title, url, ch, sub, "") },
-                            onNotesClick = { navigateTo(Screen.UserNotes) }
+                            onNotesClick = { navigateTo(Screen.UserNotes) },
+                            onMcqClick = { navigateTo(Screen.UserMcq) }
                         )
                     }
                     is Screen.ProfDetail -> {
@@ -410,7 +412,9 @@ fun MedXMedApp() {
                     Screen.Profile -> {
                         ProfileScreen(
                             onBackClick = { screenStack.removeAt(screenStack.lastIndex) },
-                            onOpenAdminSection = { navigateTo(Screen.Admin) }
+                            onOpenAdminSection = { navigateTo(Screen.Admin) },
+                            onOpenBookmarks = { navigateTo(Screen.McqBookmarks) },
+                            onOpenHistory = { navigateTo(Screen.McqHistory) }
                         )
                     }
                     Screen.Admin -> {
@@ -432,6 +436,31 @@ fun MedXMedApp() {
                     }
                     Screen.AdminNotesManage -> {
                         AdminNotesManageScreen(
+                            onBackClick = { screenStack.removeAt(screenStack.lastIndex) }
+                        )
+                    }
+                    Screen.UserMcq -> {
+                        UserMcqScreen(
+                            onBackClick = { screenStack.removeAt(screenStack.lastIndex) }
+                        )
+                    }
+                    Screen.AdminMcqUpload -> {
+                        AdminMcqUploadScreen(
+                            onBackClick = { screenStack.removeAt(screenStack.lastIndex) }
+                        )
+                    }
+                    Screen.AdminMcqManage -> {
+                        AdminMcqManageScreen(
+                            onBackClick = { screenStack.removeAt(screenStack.lastIndex) }
+                        )
+                    }
+                    Screen.McqBookmarks -> {
+                        McqBookmarksScreen(
+                            onBackClick = { screenStack.removeAt(screenStack.lastIndex) }
+                        )
+                    }
+                    Screen.McqHistory -> {
+                        McqHistoryScreen(
                             onBackClick = { screenStack.removeAt(screenStack.lastIndex) }
                         )
                     }

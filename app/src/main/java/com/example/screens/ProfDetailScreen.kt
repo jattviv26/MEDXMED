@@ -37,7 +37,7 @@ fun ProfDetailScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = profYear.displayName,
+                        text = profYear.title,
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp,
                         color = Color(0xFF1E3A8A)

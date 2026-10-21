@@ -153,6 +153,7 @@ data class ShortItem(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+@Serializable
 data class AdminNoteItem(
     val id: String = java.util.UUID.randomUUID().toString(),
     val folderName: String,
@@ -163,5 +164,71 @@ data class AdminNoteItem(
     val pdfUri: String,
     val sortOrder: Int = 0,
     val createdAt: Long = System.currentTimeMillis()
+)
+
+@Serializable
+data class McqQuestion(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val questionText: String,
+    val optionA: String,
+    val optionB: String,
+    val optionC: String,
+    val optionD: String,
+    val correctOption: String, // "A", "B", "C", or "D"
+    val explanation: String = "",
+    val questionImageUrl: String = "",
+    val answerImageUrl: String = ""
+)
+
+@Serializable
+data class McqItem(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val folderName: String,
+    val subfolderName: String,
+    val subSubfolderName: String = "",
+    val chapterName: String,
+    val questions: List<McqQuestion> = emptyList(),
+    val questionCount: Int = questions.size,
+    val r2Key: String = "",
+    val r2Url: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Serializable
+data class Catalog(
+    val adminNotes: List<AdminNoteItem> = emptyList(),
+    val mcqItems: List<McqItem> = emptyList()
+)
+
+@Serializable
+data class McqBookmarkItem(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val chapterName: String,
+    val folderName: String = "",
+    val subfolderName: String = "",
+    val question: McqQuestion,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Serializable
+data class QuestionAttemptRecord(
+    val question: McqQuestion,
+    val selectedOption: String = "",
+    val isCorrect: Boolean = false
+)
+
+@Serializable
+data class McqHistoryItem(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val chapterName: String,
+    val folderName: String = "",
+    val subfolderName: String = "",
+    val totalQuestions: Int,
+    val correctCount: Int,
+    val incorrectCount: Int,
+    val unattemptedCount: Int,
+    val score: Int,
+    val timestamp: Long = System.currentTimeMillis(),
+    val records: List<QuestionAttemptRecord> = emptyList()
 )
 

@@ -5,6 +5,9 @@ import com.example.data.local.*
 import com.example.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import com.example.model.Catalog
 
 
 object MedRepository {
@@ -29,6 +32,18 @@ object MedRepository {
 
     private val _currentTheme = MutableStateFlow(0)
     val currentTheme: StateFlow<Int> = _currentTheme.asStateFlow()
+
+    // Admin Session Authentication State
+    private val _isAdminUnlocked = MutableStateFlow(false)
+    val isAdminUnlocked: StateFlow<Boolean> = _isAdminUnlocked.asStateFlow()
+
+    fun unlockAdmin() {
+        _isAdminUnlocked.value = true
+    }
+
+    fun lockAdmin() {
+        _isAdminUnlocked.value = false
+    }
 
     // Hidden Items (Sections, Folders, Subfolders, Chapters)
     private val _hiddenItemKeys = MutableStateFlow<Set<String>>(emptySet())
@@ -206,6 +221,15 @@ object MedRepository {
     private val _adminNotes = MutableStateFlow<List<AdminNoteItem>>(emptyList())
     val adminNotes: StateFlow<List<AdminNoteItem>> = _adminNotes.asStateFlow()
 
+    private val _mcqItems = MutableStateFlow<List<McqItem>>(emptyList())
+    val mcqItems: StateFlow<List<McqItem>> = _mcqItems.asStateFlow()
+
+    private val _mcqBookmarks = MutableStateFlow<List<McqBookmarkItem>>(emptyList())
+    val mcqBookmarks: StateFlow<List<McqBookmarkItem>> = _mcqBookmarks.asStateFlow()
+
+    private val _mcqHistory = MutableStateFlow<List<McqHistoryItem>>(emptyList())
+    val mcqHistory: StateFlow<List<McqHistoryItem>> = _mcqHistory.asStateFlow()
+
     private val _customSections = MutableStateFlow<List<CustomSection>>(emptyList())
     val customSections: StateFlow<List<CustomSection>> = _customSections.asStateFlow()
 
@@ -234,6 +258,8 @@ object MedRepository {
         _referText.value = sharedPrefs?.getString("refer_text", defaultRefer) ?: defaultRefer
         _referUrl.value = sharedPrefs?.getString("refer_url", defaultReferUrl) ?: defaultReferUrl
         _ratingUrl.value = sharedPrefs?.getString("rating_url", defaultRatingUrl) ?: defaultRatingUrl
+        
+        fetchCatalog()
 
         // Initialize Cloudflare R2
         com.example.data.cloud.CloudflareR2Manager.initialize(context)
@@ -317,6 +343,24 @@ object MedRepository {
                 .map { entities -> entities.map { it.toDomain() } }
                 .collect { list -> _adminNotes.value = list }
         }
+
+        repositoryScope.launch {
+            db.mcqDao().getAllMcqs()
+                .map { entities -> entities.map { it.toDomain() } }
+                .collect { list -> _mcqItems.value = list }
+        }
+
+        repositoryScope.launch {
+            db.mcqBookmarkDao().getAllBookmarks()
+                .map { entities -> entities.map { it.toDomain() } }
+                .collect { list -> _mcqBookmarks.value = list }
+        }
+
+        repositoryScope.launch {
+            db.mcqHistoryDao().getAllHistory()
+                .map { entities -> entities.map { it.toDomain() } }
+                .collect { list -> _mcqHistory.value = list }
+        }
     }
 
     fun addAdminNote(item: AdminNoteItem) {
@@ -326,6 +370,7 @@ object MedRepository {
                 db.adminNoteDao().insertAdminNote(AdminNoteEntity.fromDomain(item))
             }
         }
+        triggerCatalogPublish("adminNotes")
     }
 
     fun editAdminNote(id: String, folderName: String, subfolderName: String, subSubfolderName: String, chapterName: String, pdfTitle: String) {
@@ -518,6 +563,7 @@ object MedRepository {
                 db.adminNoteDao().deleteChapter(folderName, subName, chapterName)
             }
         }
+        triggerCatalogPublish("adminNotes")
     }
 
 
@@ -532,8 +578,392 @@ object MedRepository {
         return "$baseUrl/$cleanProf/$cleanSubject/$cleanFolder/$cleanFile"
     }
 
-    fun triggerCatalogPublish() {
-        // No-op: catalog.json publishing removed per user request
+    fun buildMcqR2Key(folder: String, subfolder: String, subSubfolder: String = "", chapter: String): String {
+        val cleanFolder = folder.trim().replace(" ", "_")
+        val cleanSub = subfolder.trim().replace(" ", "_")
+        val cleanSubSub = subSubfolder.trim().replace(" ", "_")
+        val cleanChap = chapter.trim().replace(" ", "_").removeSuffix(".json")
+        return if (cleanSubSub.isNotBlank()) {
+            "mcqs/$cleanFolder/$cleanSub/$cleanSubSub/$cleanChap.json"
+        } else {
+            "mcqs/$cleanFolder/$cleanSub/$cleanChap.json"
+        }
+    }
+
+    fun addMcqItem(item: McqItem, syncToCloudflareR2: Boolean = true) {
+        val computedKey = if (item.r2Key.isNotBlank()) item.r2Key
+        else buildMcqR2Key(item.folderName, item.subfolderName, item.subSubfolderName, item.chapterName)
+        val computedUrl = if (item.r2Url.isNotBlank()) item.r2Url
+        else "${com.example.data.cloud.CloudflareR2Manager.publicBaseUrl.value.trimEnd('/')}/$computedKey"
+
+        val finalizedItem = item.copy(
+            r2Key = computedKey,
+            r2Url = computedUrl,
+            questionCount = if (item.questions.isNotEmpty()) item.questions.size else item.questionCount
+        )
+
+        _mcqItems.update { list ->
+            val idx = list.indexOfFirst { it.id == finalizedItem.id ||
+                (it.folderName.equals(finalizedItem.folderName, ignoreCase = true) &&
+                 it.subfolderName.equals(finalizedItem.subfolderName, ignoreCase = true) &&
+                 it.subSubfolderName.equals(finalizedItem.subSubfolderName, ignoreCase = true) &&
+                 it.chapterName.equals(finalizedItem.chapterName, ignoreCase = true))
+            }
+            if (idx >= 0) {
+                list.toMutableList().apply { set(idx, finalizedItem) }
+            } else {
+                listOf(finalizedItem) + list
+            }
+        }
+
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqDao().insertMcq(McqEntity.fromDomain(finalizedItem))
+            }
+        }
+
+        if (syncToCloudflareR2) {
+            repositoryScope.launch {
+                try {
+                    val jsonQuestions = Json.encodeToString(finalizedItem.questions)
+                    com.example.data.cloud.CloudflareR2Manager.uploadString(computedKey, jsonQuestions)
+                } catch (e: Exception) {
+                    android.util.Log.e("MedRepository", "Failed to upload chapter json to R2: $computedKey", e)
+                }
+            }
+        }
+        triggerCatalogPublish("mcqItems")
+    }
+
+    fun updateMcqQuestions(id: String, updatedQuestions: List<McqQuestion>) {
+        val item = _mcqItems.value.firstOrNull { it.id == id } ?: return
+        val updated = item.copy(
+            questions = updatedQuestions,
+            questionCount = updatedQuestions.size
+        )
+        addMcqItem(updated, syncToCloudflareR2 = true)
+    }
+
+    fun renameMcqFolder(oldName: String, newName: String) {
+        val affected = _mcqItems.value.filter { it.folderName == oldName }
+        _mcqItems.update { list ->
+            list.map {
+                if (it.folderName == oldName) {
+                    val newKey = buildMcqR2Key(newName, it.subfolderName, it.subSubfolderName, it.chapterName)
+                    val newUrl = "${com.example.data.cloud.CloudflareR2Manager.publicBaseUrl.value.trimEnd('/')}/$newKey"
+                    it.copy(folderName = newName, r2Key = newKey, r2Url = newUrl)
+                } else it
+            }
+        }
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqDao().renameFolder(oldName, newName)
+            }
+        }
+        // Sync re-keyed files to Cloudflare R2
+        repositoryScope.launch {
+            affected.forEach { item ->
+                try {
+                    val oldKey = item.r2Key.ifBlank { buildMcqR2Key(oldName, item.subfolderName, item.subSubfolderName, item.chapterName) }
+                    val newKey = buildMcqR2Key(newName, item.subfolderName, item.subSubfolderName, item.chapterName)
+                    val jsonStr = Json.encodeToString(item.questions)
+                    com.example.data.cloud.CloudflareR2Manager.uploadString(newKey, jsonStr)
+                    com.example.data.cloud.CloudflareR2Manager.deleteFile(oldKey)
+                } catch (_: Exception) {}
+            }
+        }
+        triggerCatalogPublish("mcqItems")
+    }
+
+    fun deleteMcqFolder(folderName: String) {
+        val toDelete = _mcqItems.value.filter { it.folderName == folderName }
+        _mcqItems.update { list -> list.filterNot { it.folderName == folderName } }
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqDao().deleteFolder(folderName)
+            }
+        }
+        repositoryScope.launch {
+            toDelete.forEach { item ->
+                try {
+                    val key = item.r2Key.ifBlank { buildMcqR2Key(item.folderName, item.subfolderName, item.subSubfolderName, item.chapterName) }
+                    com.example.data.cloud.CloudflareR2Manager.deleteFile(key)
+                } catch (_: Exception) {}
+            }
+        }
+        triggerCatalogPublish("mcqItems")
+    }
+
+    fun renameMcqSubfolder(folderName: String, oldSub: String, newSub: String) {
+        val affected = _mcqItems.value.filter { it.folderName == folderName && it.subfolderName == oldSub }
+        _mcqItems.update { list ->
+            list.map {
+                if (it.folderName == folderName && it.subfolderName == oldSub) {
+                    val newKey = buildMcqR2Key(folderName, newSub, it.subSubfolderName, it.chapterName)
+                    val newUrl = "${com.example.data.cloud.CloudflareR2Manager.publicBaseUrl.value.trimEnd('/')}/$newKey"
+                    it.copy(subfolderName = newSub, r2Key = newKey, r2Url = newUrl)
+                } else it
+            }
+        }
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqDao().renameSubfolder(folderName, oldSub, newSub)
+            }
+        }
+        repositoryScope.launch {
+            affected.forEach { item ->
+                try {
+                    val oldKey = item.r2Key.ifBlank { buildMcqR2Key(folderName, oldSub, item.subSubfolderName, item.chapterName) }
+                    val newKey = buildMcqR2Key(folderName, newSub, item.subSubfolderName, item.chapterName)
+                    val jsonStr = Json.encodeToString(item.questions)
+                    com.example.data.cloud.CloudflareR2Manager.uploadString(newKey, jsonStr)
+                    com.example.data.cloud.CloudflareR2Manager.deleteFile(oldKey)
+                } catch (_: Exception) {}
+            }
+        }
+        triggerCatalogPublish("mcqItems")
+    }
+
+    fun deleteMcqSubfolder(folderName: String, subName: String) {
+        val toDelete = _mcqItems.value.filter { it.folderName == folderName && it.subfolderName == subName }
+        _mcqItems.update { list -> list.filterNot { it.folderName == folderName && it.subfolderName == subName } }
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqDao().deleteSubfolder(folderName, subName)
+            }
+        }
+        repositoryScope.launch {
+            toDelete.forEach { item ->
+                try {
+                    val key = item.r2Key.ifBlank { buildMcqR2Key(item.folderName, item.subfolderName, item.subSubfolderName, item.chapterName) }
+                    com.example.data.cloud.CloudflareR2Manager.deleteFile(key)
+                } catch (_: Exception) {}
+            }
+        }
+        triggerCatalogPublish("mcqItems")
+    }
+
+    fun renameMcqSubSubfolder(folderName: String, subName: String, oldSubSub: String, newSubSub: String) {
+        val affected = _mcqItems.value.filter { it.folderName == folderName && it.subfolderName == subName && it.subSubfolderName == oldSubSub }
+        _mcqItems.update { list ->
+            list.map {
+                if (it.folderName == folderName && it.subfolderName == subName && it.subSubfolderName == oldSubSub) {
+                    val newKey = buildMcqR2Key(folderName, subName, newSubSub, it.chapterName)
+                    val newUrl = "${com.example.data.cloud.CloudflareR2Manager.publicBaseUrl.value.trimEnd('/')}/$newKey"
+                    it.copy(subSubfolderName = newSubSub, r2Key = newKey, r2Url = newUrl)
+                } else it
+            }
+        }
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqDao().renameSubSubfolder(folderName, subName, oldSubSub, newSubSub)
+            }
+        }
+        repositoryScope.launch {
+            affected.forEach { item ->
+                try {
+                    val oldKey = item.r2Key.ifBlank { buildMcqR2Key(folderName, subName, oldSubSub, item.chapterName) }
+                    val newKey = buildMcqR2Key(folderName, subName, newSubSub, item.chapterName)
+                    val jsonStr = Json.encodeToString(item.questions)
+                    com.example.data.cloud.CloudflareR2Manager.uploadString(newKey, jsonStr)
+                    com.example.data.cloud.CloudflareR2Manager.deleteFile(oldKey)
+                } catch (_: Exception) {}
+            }
+        }
+        triggerCatalogPublish("mcqItems")
+    }
+
+    fun deleteMcqSubSubfolder(folderName: String, subName: String, subSubName: String) {
+        val toDelete = _mcqItems.value.filter { it.folderName == folderName && it.subfolderName == subName && it.subSubfolderName == subSubName }
+        _mcqItems.update { list -> list.filterNot { it.folderName == folderName && it.subfolderName == subName && it.subSubfolderName == subSubName } }
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqDao().deleteSubSubfolder(folderName, subName, subSubName)
+            }
+        }
+        repositoryScope.launch {
+            toDelete.forEach { item ->
+                try {
+                    val key = item.r2Key.ifBlank { buildMcqR2Key(item.folderName, item.subfolderName, item.subSubfolderName, item.chapterName) }
+                    com.example.data.cloud.CloudflareR2Manager.deleteFile(key)
+                } catch (_: Exception) {}
+            }
+        }
+        triggerCatalogPublish("mcqItems")
+    }
+
+    fun renameMcqChapter(id: String, newChapterName: String) {
+        val item = _mcqItems.value.firstOrNull { it.id == id } ?: return
+        val oldKey = item.r2Key.ifBlank { buildMcqR2Key(item.folderName, item.subfolderName, item.subSubfolderName, item.chapterName) }
+        val newKey = buildMcqR2Key(item.folderName, item.subfolderName, item.subSubfolderName, newChapterName)
+        val newUrl = "${com.example.data.cloud.CloudflareR2Manager.publicBaseUrl.value.trimEnd('/')}/$newKey"
+
+        val updated = item.copy(
+            chapterName = newChapterName,
+            r2Key = newKey,
+            r2Url = newUrl
+        )
+
+        _mcqItems.update { list ->
+            list.map { if (it.id == id) updated else it }
+        }
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqDao().renameChapterById(id, newChapterName)
+            }
+        }
+        repositoryScope.launch {
+            try {
+                val jsonStr = Json.encodeToString(item.questions)
+                com.example.data.cloud.CloudflareR2Manager.uploadString(newKey, jsonStr)
+                com.example.data.cloud.CloudflareR2Manager.deleteFile(oldKey)
+            } catch (_: Exception) {}
+        }
+        triggerCatalogPublish("mcqItems")
+    }
+
+    fun deleteMcqChapter(folderName: String, subName: String, chapterName: String) {
+        val matching = _mcqItems.value.firstOrNull { it.folderName == folderName && it.subfolderName == subName && it.chapterName == chapterName }
+        if (matching != null) {
+            deleteMcqChapterById(matching.id)
+        } else {
+            _mcqItems.update { list ->
+                list.filterNot { it.folderName == folderName && it.subfolderName == subName && it.chapterName == chapterName }
+            }
+            database?.let { db ->
+                repositoryScope.launch {
+                    db.mcqDao().deleteChapter(folderName, subName, chapterName)
+                }
+            }
+            triggerCatalogPublish("mcqItems")
+        }
+    }
+
+    fun deleteMcqChapterById(id: String) {
+        val item = _mcqItems.value.firstOrNull { it.id == id }
+        _mcqItems.update { list -> list.filterNot { it.id == id } }
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqDao().deleteMcqById(id)
+            }
+        }
+        if (item != null) {
+            repositoryScope.launch {
+                try {
+                    val key = item.r2Key.ifBlank { buildMcqR2Key(item.folderName, item.subfolderName, item.subSubfolderName, item.chapterName) }
+                    com.example.data.cloud.CloudflareR2Manager.deleteFile(key)
+                } catch (_: Exception) {}
+            }
+        }
+        triggerCatalogPublish("mcqItems")
+    }
+
+    suspend fun loadMcqQuestionsIfNeeded(chapter: McqItem): List<McqQuestion> = withContext(Dispatchers.IO) {
+        if (chapter.questions.isNotEmpty()) {
+            return@withContext chapter.questions
+        }
+        val key = chapter.r2Key.ifBlank {
+            buildMcqR2Key(chapter.folderName, chapter.subfolderName, chapter.subSubfolderName, chapter.chapterName)
+        }
+        val res = com.example.data.cloud.CloudflareR2Manager.downloadString(key)
+        if (res.isSuccess) {
+            val jsonStr = res.getOrNull().orEmpty()
+            if (jsonStr.isNotBlank()) {
+                try {
+                    val parsed = Json { ignoreUnknownKeys = true; isLenient = true }.decodeFromString<List<McqQuestion>>(jsonStr)
+                    val updated = chapter.copy(questions = parsed, questionCount = parsed.size, r2Key = key)
+                    _mcqItems.update { list ->
+                        list.map { if (it.id == chapter.id) updated else it }
+                    }
+                    database?.mcqDao()?.insertMcq(McqEntity.fromDomain(updated))
+                    return@withContext parsed
+                } catch (e: Exception) {
+                    android.util.Log.e("MedRepository", "Failed to parse loaded questions for $key", e)
+                }
+            }
+        }
+        return@withContext emptyList()
+    }
+
+    fun toggleBookmark(chapterName: String, folderName: String, subfolderName: String, question: McqQuestion) {
+        val existing = _mcqBookmarks.value.firstOrNull { it.question.id == question.id }
+        if (existing != null) {
+            _mcqBookmarks.update { list -> list.filterNot { it.id == existing.id } }
+            database?.let { db ->
+                repositoryScope.launch {
+                    db.mcqBookmarkDao().deleteBookmark(existing.id)
+                }
+            }
+        } else {
+            val item = McqBookmarkItem(
+                chapterName = chapterName,
+                folderName = folderName,
+                subfolderName = subfolderName,
+                question = question
+            )
+            _mcqBookmarks.update { listOf(item) + it }
+            database?.let { db ->
+                repositoryScope.launch {
+                    db.mcqBookmarkDao().insertBookmark(McqBookmarkEntity.fromDomain(item))
+                }
+            }
+        }
+    }
+
+    fun isBookmarked(questionId: String): Boolean {
+        return _mcqBookmarks.value.any { it.question.id == questionId }
+    }
+
+    fun deleteBookmark(id: String) {
+        _mcqBookmarks.update { list -> list.filterNot { it.id == id } }
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqBookmarkDao().deleteBookmark(id)
+            }
+        }
+    }
+
+    fun saveTestHistory(history: McqHistoryItem) {
+        _mcqHistory.update { listOf(history) + it }
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqHistoryDao().insertHistory(McqHistoryEntity.fromDomain(history))
+            }
+        }
+    }
+
+    fun deleteHistory(id: String) {
+        _mcqHistory.update { list -> list.filterNot { it.id == id } }
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqHistoryDao().deleteHistory(id)
+            }
+        }
+    }
+
+    fun clearAllHistory() {
+        _mcqHistory.value = emptyList()
+        database?.let { db ->
+            repositoryScope.launch {
+                db.mcqHistoryDao().clearAllHistory()
+            }
+        }
+    }
+
+
+    fun triggerCatalogPublish(section: String = "adminNotes") {
+        val jsonString = when (section) {
+            "adminNotes" -> Json.encodeToString(Catalog(adminNotes = _adminNotes.value, mcqItems = emptyList()))
+            "mcqItems" -> Json.encodeToString(Catalog(adminNotes = emptyList(), mcqItems = _mcqItems.value))
+            else -> return
+        }
+        repositoryScope.launch {
+            com.example.data.cloud.CloudflareR2Manager.uploadString("catalog_$section.json", jsonString)
+            try {
+                val fullCatalog = Json.encodeToString(Catalog(adminNotes = _adminNotes.value, mcqItems = _mcqItems.value))
+                com.example.data.cloud.CloudflareR2Manager.uploadString("catalog-index.json", fullCatalog)
+            } catch (_: Exception) {}
+        }
     }
 
 
@@ -956,6 +1386,62 @@ object MedRepository {
                 db.lectureDao().clearAllLectures()
                 db.shortDao().clearAllShorts()
                 db.pomodoroSessionDao().clearAllSessions()
+            }
+        }
+    }
+
+    fun fetchCatalog() {
+        repositoryScope.launch {
+            // 1. Fetch adminNotes
+            val resNotes = com.example.data.cloud.CloudflareR2Manager.downloadString("catalog_adminNotes.json")
+            if (resNotes.isSuccess) {
+                val jsonStr = resNotes.getOrNull()
+                if (!jsonStr.isNullOrBlank()) {
+                    try {
+                        val catalog = Json.decodeFromString<Catalog>(jsonStr)
+                        _adminNotes.value = catalog.adminNotes
+                        database?.let { db ->
+                            db.adminNoteDao().clearAllAdminNotes()
+                            db.adminNoteDao().insertAdminNotes(catalog.adminNotes.map { AdminNoteEntity.fromDomain(it) })
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("MedRepository", "Failed to decode catalog_adminNotes.json", e)
+                    }
+                }
+            } else {
+                // Fallback to legacy catalog.json
+                val resLegacy = com.example.data.cloud.CloudflareR2Manager.downloadString("catalog.json")
+                if (resLegacy.isSuccess) {
+                    val jsonStr = resLegacy.getOrNull()
+                    if (!jsonStr.isNullOrBlank()) {
+                        try {
+                            val catalog = Json.decodeFromString<Catalog>(jsonStr)
+                            _adminNotes.value = catalog.adminNotes
+                            database?.let { db ->
+                                db.adminNoteDao().clearAllAdminNotes()
+                                db.adminNoteDao().insertAdminNotes(catalog.adminNotes.map { AdminNoteEntity.fromDomain(it) })
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            // 2. Fetch mcqItems
+            val resMcq = com.example.data.cloud.CloudflareR2Manager.downloadString("catalog_mcqItems.json")
+            if (resMcq.isSuccess) {
+                val jsonStr = resMcq.getOrNull()
+                if (!jsonStr.isNullOrBlank()) {
+                    try {
+                        val catalog = Json.decodeFromString<Catalog>(jsonStr)
+                        _mcqItems.value = catalog.mcqItems
+                        database?.let { db ->
+                            db.mcqDao().clearAllMcqs()
+                            db.mcqDao().insertMcqs(catalog.mcqItems.map { McqEntity.fromDomain(it) })
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("MedRepository", "Failed to decode catalog_mcqItems.json", e)
+                    }
+                }
             }
         }
     }
